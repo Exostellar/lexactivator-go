@@ -1,3 +1,3 @@
-module github.com/exotanium/lexactivator-go
+module github.com/Exostellar/lexactivator-go
 
 go 1.14
