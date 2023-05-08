@@ -1,4 +1,4 @@
-// Copyright 2020 Cryptlex, LLC. All rights reserved.
+// Copyright 2023 Cryptlex, LLC. All rights reserved.
 
 package lexactivator
 
@@ -11,13 +11,16 @@ package lexactivator
 #include <stdlib.h>
 void licenseCallbackCgoGateway(int status);
 void releaseUpdateCallbackCgoGateway(int status);
+void newReleaseUpdateCallbackCgoGateway(int status, char* releaseJson, void* unused);
 */
 import "C"
 import (
+	"encoding/json"
 	"unsafe"
 )
 
 type callbackType func(int)
+type releaseCallbackType func(int, *Release, interface{})
 
 const (
 	LA_USER      uint = 1
@@ -25,9 +28,18 @@ const (
 	LA_IN_MEMORY uint = 4
 )
 
+const (
+   LA_RELEASES_ALL     uint = 1
+   LA_RELEASES_ALLOWED uint = 2
+)
+
 var licenseCallbackFuncion callbackType
 
-var releaseUpdateCallbackFuncion callbackType
+var legacyReleaseCallbackFunction callbackType
+
+var releaseCallbackFunction releaseCallbackType
+
+var releaseCallbackFunctionUserData interface {}
 
 //export licenseCallbackWrapper
 func licenseCallbackWrapper(status int) {
@@ -38,9 +50,23 @@ func licenseCallbackWrapper(status int) {
 
 //export releaseUpdateCallbackWrapper
 func releaseUpdateCallbackWrapper(status int) {
-	if releaseUpdateCallbackFuncion != nil {
-		releaseUpdateCallbackFuncion(status)
+	if legacyReleaseCallbackFunction != nil {
+		legacyReleaseCallbackFunction(status)
 	}
+}
+
+//export newReleaseUpdateCallbackWrapper
+func newReleaseUpdateCallbackWrapper(status int, releaseJson *C.char) {
+   releaseJsonStr := ctoGoString(releaseJson)
+   if releaseCallbackFunction != nil {
+      if releaseJsonStr != "" {
+         release := &Release{}
+         json.Unmarshal([]byte(releaseJsonStr), release)
+         releaseCallbackFunction(status, release, releaseCallbackFunctionUserData)
+      } else {
+         releaseCallbackFunction(status, nil, releaseCallbackFunctionUserData)
+      }
+   }
 }
 
 /*
@@ -343,6 +369,60 @@ func SetReleaseVersion(releaseVersion string) int {
 	return int(status)
 }
 
+/*
+
+   FUNCTION: SetReleasePublishedDate()
+
+   PURPOSE: Sets the release published date of your application.
+
+   PARAMETERS:
+   * releasePublishedDate - unix timestamp of release published date.
+
+   RETURN CODES: LA_OK, LA_E_PRODUCT_ID
+*/
+func SetReleasePublishedDate(releasePublishedDate uint) int {
+   cReleasePublishedDate := (C.uint)(releasePublishedDate)
+   status := C.SetReleasePublishedDate(cReleasePublishedDate)
+   return int(status)
+}
+
+/*
+   FUNCTION: SetReleasePlatform()
+
+   PURPOSE: Sets the release platform e.g. windows, macos, linux
+
+   The release platform appears along with the activation details in dashboard.
+
+   PARAMETERS:
+   * releasePlatform - release platform e.g. windows, macos, linux
+
+   RETURN CODES: LA_OK, LA_E_PRODUCT_ID, LA_E_RELEASE_PLATFORM_LENGTH
+*/
+func SetReleasePlatform(releasePlatform string) int {
+	cReleasePlatform := goToCString(releasePlatform)
+	status := C.SetReleasePlatform(cReleasePlatform)
+	freeCString(cReleasePlatform)
+	return int(status)
+}
+
+/*
+   FUNCTION: SetReleaseChannel()
+
+   PURPOSE: Sets the release channel e.g. stable, beta
+
+   The release channel appears along with the activation details in dashboard.
+
+   PARAMETERS:
+   * channel - release channel e.g. stable
+
+   RETURN CODES: LA_OK, LA_E_PRODUCT_ID, LA_E_RELEASE_CHANNEL_LENGTH
+*/
+func SetReleaseChannel(releaseChannel string) int {
+	cReleaseChannel := goToCString(releaseChannel)
+	status := C.SetReleaseChannel(cReleaseChannel)
+	freeCString(cReleaseChannel)
+	return int(status)
+}
 
 /*
    FUNCTION: SetOfflineActivationRequestMeterAttributeUses()
@@ -630,6 +710,24 @@ func GetLicenseMaintenanceExpiryDate(maintenanceExpiryDate *uint) int {
 }
 
 /*
+   FUNCTION: GetLicenseMaxAllowedReleaseVersion()
+
+   PURPOSE: Gets the maximum allowed release version of the license.
+
+   PARAMETERS:
+   * maxAllowedReleaseVersion - pointer to a buffer that receives the value of the string.
+   * length - size of the buffer pointed to by the maxAllowedReleaseVersion parameter.
+
+   RETURN CODES: LA_OK, LA_FAIL, LA_E_PRODUCT_ID, LA_E_LICENSE_KEY,  LA_E_TIME, LA_E_TIME_MODIFIED, LA_E_BUFFER_SIZE
+*/
+func GetLicenseMaxAllowedReleaseVersion(maxAllowedReleaseVersion *string) int {
+	var cMaxAllowedReleaseVersion = getCArray()
+	status := C.GetLicenseMaxAllowedReleaseVersion(&cMaxAllowedReleaseVersion[0], maxCArrayLength)
+	*maxAllowedReleaseVersion = ctoGoString(&cMaxAllowedReleaseVersion[0])
+	return int(status)
+}
+
+/*
    FUNCTION: GetLicenseUserEmail()
 
    PURPOSE: Gets the email associated with license user.
@@ -701,6 +799,47 @@ func GetLicenseUserMetadata(key string, value *string) int {
 	*value = ctoGoString(&cValue[0])
 	freeCString(cKey)
 	return int(status)
+}
+
+/*
+   FUNCTION: GetLicenseOrganizationName()
+
+   PURPOSE: Gets the organization name associated with the license.
+
+   PARAMETERS:
+   * organizationName - pointer to the string that receives the value
+
+   RETURN CODES: LA_OK, LA_FAIL, LA_E_PRODUCT_ID, LA_E_TIME, LA_E_TIME_MODIFIED,
+   LA_E_BUFFER_SIZE
+*/
+func GetLicenseOrganizationName(organizationName *string) int {
+   var cOrganizationName = getCArray()
+   status := C.GetLicenseOrganizationName(&cOrganizationName[0], maxCArrayLength)
+   *organizationName = ctoGoString(&cOrganizationName[0])
+   return int(status)
+}
+
+/*
+   FUNCTION: GetLicenseOrganizationAddress()
+
+   PURPOSE: Gets the organization address associated with the license.
+
+   PARAMETERS:
+   * organizationAddress - pointer to the OrganizationAddress struct that receives the value
+
+   RETURN CODES: LA_OK, LA_FAIL, LA_E_PRODUCT_ID, LA_E_TIME, LA_E_TIME_MODIFIED,
+   LA_E_BUFFER_SIZE
+*/
+func GetLicenseOrganizationAddress(organizationAddress *OrganizationAddress) int {
+   var cOrganizationAddress = getCArray()
+   organizationAddressJson := ""
+   status := C.GetLicenseOrganizationAddressInternal(&cOrganizationAddress[0], maxCArrayLength)
+   organizationAddressJson = ctoGoString(&cOrganizationAddress[0])
+   if organizationAddressJson != "" {
+      address := []byte(organizationAddressJson)
+      json.Unmarshal(address, organizationAddress)
+   }
+   return int(status)
 }
 
 /*
@@ -912,13 +1051,53 @@ func CheckForReleaseUpdate(platform string, version string, channel string, call
 	cVersion := goToCString(version)
 	cChannel := goToCString(channel)
 	status := C.CheckForReleaseUpdate(cPlatform, cVersion, cChannel, (C.CallbackType)(unsafe.Pointer(C.releaseUpdateCallbackCgoGateway)))
-	releaseUpdateCallbackFuncion = callbackFunction
+	legacyReleaseCallbackFunction = callbackFunction
 	freeCString(cPlatform)
 	freeCString(cVersion)
 	freeCString(cChannel)
 	return int(status)
 }
 
+/*
+   FUNCTION: CheckReleaseUpdate()
+
+   PURPOSE: Checks whether a new release is available for the product.
+
+   This function should only be used if you manage your releases through
+   Cryptlex release management API.
+
+   When this function is called the release update callback function gets invoked 
+   which passes the following parameters:
+
+   * status - determines if any update is available or not. It also determines whether 
+     an update is allowed or not. Expected values are LA_RELEASE_UPDATE_AVAILABLE,
+     LA_RELEASE_UPDATE_NOT_AVAILABLE, LA_RELEASE_UPDATE_AVAILABLE_NOT_ALLOWED.
+
+   * release- returns release struct of the latest available release, depending on the 
+     flag LA_RELEASES_ALLOWED or LA_RELEASES_ALL passed to the CheckReleaseUpdate().
+
+   * userData - data that is passed to the callback function when it is registered
+     using the CheckReleaseUpdate function. This parameter is optional and can be nil if no user data
+     is passed to the CheckReleaseUpdate function.
+
+   PARAMETERS:
+   * releaseUpdateCallback - name of the callback function.
+   * releaseFlags - if an update only related to the allowed release is required, 
+     then use LA_RELEASES_ALLOWED. Otherwise, if an update for all the releases is
+     required, then use LA_RELEASES_ALL.
+   * userData - data that can be passed to the callback function. This parameter has
+     to be nil if no user data needs to be passed to the callback.
+
+   RETURN CODES: LA_OK, LA_E_PRODUCT_ID, LA_E_LICENSE_KEY, LA_E_RELEASE_VERSION_FORMAT, LA_E_RELEASE_VERSION,
+   LA_E_RELEASE_PLATFORM, LA_E_RELEASE_CHANNEL
+*/
+func CheckReleaseUpdate(releaseUpdateCallbackFunction func(int, *Release, interface{}), releaseFlags uint, userData interface{}) int {
+   cReleaseFlags := (C.uint)(releaseFlags)
+	status := C.CheckReleaseUpdateInternal((C.ReleaseCallbackTypeInternal)(unsafe.Pointer(C.newReleaseUpdateCallbackCgoGateway)), cReleaseFlags, nil)
+	releaseCallbackFunction = releaseUpdateCallbackFunction
+   releaseCallbackFunctionUserData = userData
+	return int(status)
+}
 /*
    FUNCTION: ActivateLicense()
 
