@@ -1,3 +1,3 @@
-package dummy
+package lexactivator
 
 func LinuxAmd64() {}

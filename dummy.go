@@ -1,9 +1,9 @@
 package lexactivator
 
 func Dummy() {
-	dummy.DummyHeaders()
-	dummy.DarwinAmd64()
-	dummy.LinuxAmd64()
-	dummy.LinuxArm64()
-	dummy.WindowsAmd64()
+	DummyHeaders()
+	DarwinAmd64()
+	LinuxAmd64()
+	LinuxArm64()
+	WindowsAmd64()
 }
