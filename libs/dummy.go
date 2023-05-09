@@ -1,3 +1,3 @@
 package lexactivator
 
-func Dummy() {}
+func DummyLibraries() {}
